@@ -26,27 +26,33 @@ do
 	esac
 done
 
-if [ ! -d $DIRECTORY ]; then
+if [[ ! -d $DIRECTORY ]]; then
 	echo "Please input directory with (-d)!"
 	exit -1
 fi
 
-if [ ! -f $SCRIPT ]; then
+if [[ ! -s $SCRIPT ]]; then
 	echo "Please input extract script with (-s)!"
 	exit -1
 fi
 
-for f in `find -executable -type f`; do
+for f in `find $DIRECTORY -executable -type f`; do
 	echo "===========current file is $f==================="
-	
+
 	gt_gz=${f}.gt.gz
 	gt=${f}.gt
 	dir_name=`dirname $f`
 	base_name=`basename $f`
+
 	output=${dir_name}/${PREFIX}_${base_name}.pb
+	if [ -f $output ]; then
+		echo "skip"
+		continue
+	fi
+	output_log=${dir_name}/${PREFIX}_${base_name}.log
 
 	objcopy --dump-section .rand=$gt_gz $f && yes | gzip -d $gt_gz
 
-	python3 $SCRIPT -b $f -m $gt -o $output
+	python3 $SCRIPT -b $f -m $gt -o $output 2>&1 | tee $output_log
 done
 
