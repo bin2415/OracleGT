@@ -44,9 +44,10 @@ if [[ -z $PREFIX ]]; then
     exit -1
 fi
 
-if [ -z $OUTPUT ]; then
+if [[ -z $OUTPUT ]]; then
     OUTPUT="/tmp/"
 fi
+
 
 output_dir=`dirname $OUTPUT`
 
@@ -55,18 +56,13 @@ if [ ! -d $OUTPUT ]; then
     mkdir -p $OUTPUT
 fi
 
-for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
+for f in `find ${DIRECTORY} -executable -type f | grep -v _strip | grep -v clang_m32 | grep -v _O1 | grep -v dealII_base`; do
     base_name=`basename $f`
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
 
-    gt_file=${dir_name}/gtBlock_${base_name}.pb
+    gt_file=${strip_dir_name}/BlockObjdump_${base_name}.strip.pb
     cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
-
-    if [ ! -f $cmp_file ]; then
-	    continue
-    fi
-
     echo $gt_file
     echo $cmp_file
     output_name=`realpath $f`
@@ -75,8 +71,10 @@ for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
     output_name=${OUTPUT}/$output_name
 
     if [ -f $output_name ]; then
-        echo "skip"
+	echo "$output_name exists, skip"
         continue
     fi
-    python3 $SCRIPT -g $gt_file -c $cmp_file -b $f 2>&1 | tee $output_name
+    cmd="python3 $SCRIPT -g $gt_file -c $cmp_file -b $f 2>&1 | tee $output_name"
+    echo $cmd
+    eval $cmd
 done

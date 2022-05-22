@@ -55,7 +55,7 @@ if [ ! -d $OUTPUT ]; then
     mkdir -p $OUTPUT
 fi
 
-for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
+for f in `find ${DIRECTORY} -executable -type f | grep -v _O1 | grep -v _strip`; do
     base_name=`basename $f`
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
@@ -66,7 +66,6 @@ for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
     if [ ! -f $cmp_file ]; then
 	    continue
     fi
-
     echo $gt_file
     echo $cmp_file
     output_name=`realpath $f`

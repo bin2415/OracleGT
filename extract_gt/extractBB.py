@@ -943,8 +943,6 @@ def tryReadTableEntriesARM(target, numEntries, szEntry, binary,type,instr_addr,p
                 successors.append(0x0)
                 return successors
 
-
-
     return list()
 
 def readJumpTableEntriesMips(table_base, entry_sz, size, fixups):
@@ -1214,8 +1212,6 @@ def dumpGroundTruth(essInfo, pbModule, outFile, binary, split):
     global func_list
     for func in funcList:
         func_list[func.VA] = func
-    logging.info("TTT")
-    logging.info(func_list)
     global jumpTable
     jumpTable = scanJumpTable(essInfo, binary)
 
@@ -1286,7 +1282,6 @@ def dumpGroundTruth(essInfo, pbModule, outFile, binary, split):
                 inst_list = disassembleBB(blk, binary, ELF_CLASS)
                 # inst_idx = 0
                 called_func_list = getDirectCalledFunc(blk, inst_list)
-                logging.info(called_func_list)
                 for call in called_func_list.values():
                     #logging.info(call)
                     if call not in func_list and isInRange(call, [TEXT_RANGE]) and call not in post_ana_added_funcs:
@@ -1742,7 +1737,7 @@ def handleGapsFallThrough(bblist, binary):
                     logging.debug("lalal, we can handle case 2!")
                     for result_bbl in result_bbl_list:
                         for inst in result_bbl.ins_list:
-                            logging.debug("emmm, add valid instruction. %s" % 
+                            logging.debug("emmm, add valid instruction. %s" %
                                                 (getInstStr(inst)))
                             blk.size += inst.size
                     for successor in result_bbl_list[-1].successors:

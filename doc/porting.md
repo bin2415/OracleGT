@@ -1,6 +1,11 @@
 # Compiler
 
+OracleGT supports two open-source compilers(gcc, llvm/clang) to collect the ground truth of binary disassembly(i.e., instruction recovery, function entry detection and jump table reconstruction) when compiling. Here we dissect every part insider compiler, assembler, and linker to illustrate how to port new compilers.
+
 ## Porting to LLVM/Clang
+
+In LLVM, `MachineFunction` represents the function and `MachineMasicBlock` holds a sequence of `MachineInstr`s which represent instructions of specific
+architecture. `MCFragment` represents continuous bytecodes inside the generated `Object`. In order to mark the boundary of `Function` and `Basic Block`(`Instruction`) inside `Object`, we borrow the design of [CCR](https://github.com/kevinkoo001/CCR) which traces the boundary from `MachineBasicBlock` level to `MCFragment`.
 
 ```
 
@@ -13,25 +18,7 @@
                                                      MC Componment
 ```
 
-To identify the boundary of every basic block inside object file, the tool uses the unique identifier(MFID_MBBID) to represent every `MachineBasicBlock` and pass
-this identify to `MachineInstr` and `MCInst`. The generation of identifier is shown as below:
-
-```c++
-std::string GetMBBInst(const MachineInstr *MI)
-{
-  const MachineBasicBlock *MBB = MI->getParent();
-  unsigned MBBID = MBB->getNumber();
-  unsigned MFID = MBB->getParent()->getFunctionNumber();
-  std::string ID = std::to_string(MFID) + "_" + std::to_string(MBBID);
-  return ID;//the parent ID of this MCInst: "MFID_MBBID"
-}
-```
-
-### Modification of MCAsmInfo
-
-`MCAsmInfo` class is used as a base class for assembly properties and features of specific architecture.
-
-In order to record the information of every basic block, such as size, offset from `fragment` and type, the tool adds identifiers and methods in `MCAsmInfo`.
+Specifically, we leverage `MachineBasicBlock` as the basic unit of codes. In `MCAsmInfo`, we bookkeep information of `MachineBasicBlocks` to trace the information of every basic block when assembling.
 
 ```c++
 class MCAsmInfo {
@@ -46,211 +33,102 @@ class MCAsmInfo {
   //    * MFID: fallThrough-ability
   mutable std::map<std::string, bool> canMBBFallThrough;
   //    * MachineFunctionID: size
-  mutable std::map<unsigned, unsigned> MachineFunctionSizes;
-  //    - The order of the ID in a binary should be maintained layout because it might be non-sequential.
-  mutable std::list<std::string> MBBLayoutOrder;
-
-  // (b) Fixups (list)
-  //    * <offset, size, isRela, parentID, SymbolRefFixupName, isNewSection, secName, numJTEntries, JTEntrySz>
-  //    - The last two elements are jump table information for FixupsText only,
-  //      which allows for updating the jump table entries (relative values) with pic/pie-enabled.
-  mutable std::list<std::tuple<unsigned, unsigned, bool, std::string, std::string, bool, std::string, unsigned, unsigned>>
-          FixupsText, FixupsRodata, FixupsData, FixupsDataRel, FixupsInitArray; 
-  //    - FixupsEhframe, FixupsExceptTable; (Not needed any more as a randomizer directly handles them later on)
-  //    - Keep track of the latest ID when parent ID is unavailable
-  mutable std::string latestParentID;
-  
-  // (c) Others
-  //     The following method helps full-assembly file (*.s) identify functions and basic blocks
-  //     that inherently lacks their boundaries because neither MF nor MBB has been constructed.
-  mutable bool isAssemFile = false;
-  mutable bool hasInlineAssembly = false;
-  mutable std::string prevOpcode;
-  mutable unsigned assemFuncNo = 0xffffffff;
-  mutable unsigned assemBBLNo = 0;
-  mutable unsigned specialCntPriorToFunc = 0;
-
-
-  void updateOffset(std::string id,unsigned offset) const  {
-    std::get<1>(MachineBasicBlocks[id]) = offset;
-  }
-  void updateInlineAssembleType(std::string id, unsigned type) const{
-    if (MachineBasicBlocks.count(id) == 0) {
-      MachineBasicBlocks[id] = std::make_tuple(0, 0, 0, 0, 0, "", 0);
-    }
-    std::get<6>(MachineBasicBlocks[id]) = type;
-  }
-    // Update emittedBytes from either DataFragment, RelaxableFragment or AlignFragment
-  bool updateByteCounter(std::string id, unsigned emittedBytes, unsigned numFixups, \
-                         bool isAlign, bool isInline, bool isSpecialMode = false) const {
-    // std::string id = std::to_string(fnid) + "_" + std::to_string(bbid);
-    // Create the tuple for the MBB
-    bool res = false;
-    if (MachineBasicBlocks.count(id) == 0) {
-      MachineBasicBlocks[id] = std::make_tuple(0, 0, 0, 0, 0, "", 0);
-      res = true;
-    }
-
-    // Otherwise update MBB tuples
-    std::get<0>(MachineBasicBlocks[id]) += emittedBytes; // Acutal size in MBB
-    std::get<2>(MachineBasicBlocks[id]) += numFixups;    // Number of Fixups in MBB
-    if (isAlign)
-      std::get<3>(MachineBasicBlocks[id]) += emittedBytes;  // Count NOPs in MBB
-
-    // If inlined, add the bytes in the next MBB instead of current one
-    if (isInline)
-      std::get<0>(MachineBasicBlocks[latestParentID]) -= emittedBytes;
-
-    //If it is currently a special mode, modify the type identifier
-    if(isSpecialMode)
-      std::get<4>(MachineBasicBlocks[id]) |= 1 << 6;
-    return res;
-  }
 ...
 }
 ```
 
-### Modification of MCObjectFileInfo
+`MachineBasicBlocks` is a `map`, the key is the uniqe identifier of every basic block and the value is a pair of informations:
+- size of basic block
+- offset of basic block inside section of `Object`
+- the number of fixups
+- type of basic block: is the current basic block is the boundary of function or if the basic block has special mode(such as thumb mode)
+- section name
+- type of assembly codes
 
-`MCObjectFileInfo` class describes the information of object file, the tool declares a variable to store the jump table information inside the class.
+Next, we are going to introduce how to collect those informations at the backend of LLVM.
+
+### Recording the information of basic block
+
+In order to record the size of basic block and the offset inside fragment, we trace the process of assembling `MCInst` into `bytes`. Specifically, `MCELFStreamer` is the basic class that assemble
+`MCInst` into `MCFragment`.
 
 ```c++
-class MCObjectFileInfo {
-    ...
-	MCSection *RandSection; //Special section .rand to store additional information
-	..
-    //Contains all JumpTables whose entries consist of the target MFs and MBBs
-  	//<MachineFunctionIdx_JumpTableIdx> - <(EntryKind, EntrySize, Entries[MFID_MBBID])>
- 	mutable std::map<std::string, std::tuple<unsigned, unsigned, std::list<std::string>>> JumpTableTargets;
-    std::map<std::string, std::tuple<unsigned, unsigned, std::list<std::string>>> \
-        getJumpTableTargets() const { return JumpTableTargets; }
-
-    void updateJumpTableTargets(std::string Key, unsigned EntryKind, unsigned EntrySize, \
-                                std::list<std::string> JTEntries) const {
-        JumpTableTargets[Key] = std::make_tuple(EntryKind, EntrySize, JTEntries);
-    }
+void MCELFStreamer::EmitInstToData(const MCInst &Inst,
+                                       const MCSubtargetInfo &STI) {
+  // current offset inside DF fragment
+  unsigned FragOffset = DF->getContents().size();
+  // emit current instruction into DF Fragment
+  DF->getContents().append(Code.begin(), Code.end());
+  ...
+  // Obtain the parent of this instruction (MFID_MBBID)
+  std::string ID = Inst.getParent(); // get the unique identifier of its parent basic block
+  unsigned EmittedBytes = Code.size();
+  unsigned numFixups = Fixups.size();
+  const MCAsmInfo *MAI = Assembler.getContext().getAsmInfo();
+  // check if current basic block is in special mode. such as thumb mode.
+  bool SpecialMode = STI.getSpecialMode();
+  // upate the size of current instruction and the number of fixups
+  bool initFlag = MAI->updateByteCounter(ID, EmittedBytes, numFixups, /*isAlign=*/ false, /*isInline=*/ false, /*isSpecialMode*/SpecialMode);
+  if (initFlag) // if current instruction is the start of basic block, update the offset inside fragment
+    MAI->updateOffset(ID,FragOffset);
 }
 ```
 
-To record these information, the tool adds `MachineFunction::RecordMachineJumpTableInfo` function.
+The size of some instructions(relexable instructions, such as `jmp .label`) could not determined in `EmitInstToData`, we trace the size of relexable instructions in `MCAssembler::relaxInstruction`:
 
 ```c++
-// As optimization goes, MJTI might keep being updated from the followings
-//        a) MachineFunctionPass::SelectionDAGISel::XXXDAGToDAGISel::runOnMachineFunction()
-//        b) MachineFunctionPass::BranchFolderPass::runOnMachineFunction() 
-void MachineFunction::RecordMachineJumpTableInfo(MachineJumpTableInfo *MJTI) {
-  if(jump_table in MJTI)
-  {
-  	updateJumpTableTargets(jump_table.id,jump_table.entryKind,jump_table.entrySize,jump_table.JTEntries)
-  }
-}
-class XXXDAGToDAGISel::AArch64DAGToDAGISel : public SelectionDAGISel {
-	bool runOnMachineFunction(MachineFunction &MF) override {
-	...
-    MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();//Get the jumptable info of function
-    if (MJTI)
-      MF.RecordMachineJumpTableInfo(MJTI); 
-  	...
-   }
-}
-```
-
-### Modification of MCInst
-
-In order to pass information to `MCInst`, the tool adds corresponding identifiers and methods inside it.
-
-```c++
-class MCInst {
-...
-    mutable bool special_mode = false; //Identifies whether the current instruction is a special mode, such as thumb
-    mutable unsigned JumpTableSize = 0; //Record the size of the current jump table, if it is 0, it means that the current instruction is not a special jump table instruction
-
-    mutable unsigned byteCtr = 0;//current instruction length
-    mutable unsigned fixupCtr = 0; //The size of the current fixup
-    std::string ParentID;//Identifies the BB of the current instruction,
-
-    std::string TableSymName;//Jump table symbol information related to the current instruction
-... 
-    void setSpecialMode(bool Mode) const {special_mode = Mode; }//Set the current command special mode information
-  	bool getSpecialMode() const {return special_mode; } // Get current command special mode information
-    
-    void setByteCtr(unsigned numBytes) const { byteCtr = numBytes; }//Set the current instruction length
-    unsigned getByteCtr() const { return byteCtr; }//Get the current instruction byte count
-    
-    void setFixupCtr(unsigned numFixups) const { fixupCtr = numFixups; }//Set the current instruction fixup size
-    unsigned getFixupCtr() const { return fixupCtr; }//Get the current instruction fixup size
-    
-    void setParent(std::string P) { ParentID = P; }//Set the BB identifier of current instruction
-  	const std::string getParent() const { return ParentID; }//Get the BB identifier of current instruction
-    
-    void setJumpTable(int sz) { JumpTableSize =  sz;}//Set the size of the current jump table
-    unsigned getJumpTable() const { return JumpTableSize; }//Get the size of the current jump table
-    
-    void setTableSymName(std::string P) { TableSymName = P; }//Set the Jump table symbol information related to current instruction
-    const std::string getTableSymName() const { return TableSymName; }//Get the Jump table symbol information related to current instruction
-...
+bool MCAssembler::relaxInstruction(MCAsmLayout &Layout,
+                                   MCRelaxableFragment &F) {
+    std::string ID = F.getInst().getParent();
+    unsigned relaxedBytes = F.getRelaxedBytes();
+    unsigned fixupCtr = F.getFixup();
+    unsigned curBytes = F.getInst().getByteCtr();
+    if (relaxedBytes < curBytes) {
+        // RelaxableFragment always contains relaxedBytes and fixupCtr variable
+        // for the adjustment in case of re-evaluation (simple hack but tricky)
+        // not here
+        MAI->updateByteCounter(ID, curBytes - relaxedBytes, 1 - fixupCtr,
+                              /*isAlign=*/ false, /*isInline=*/ false , /*isSpecialMode*/SpecialMode);
+        F.setRelaxedBytes(curBytes);
+        F.setFixup(1);
+        // If this fixup points to Jump Table Symbol, update it.
+        F.getFixups()[0].setFixupParentID(ID);
+      }
 }
 ```
 
-### Modification of MCInstBuilder
-
-MCInstBuilder is the helper class to create `MCInst`. The tool adds some methods to set the identifier for every generated `MCInst`.
+To update the offset of basic block inside final `object`, we hook the process of organizing fragments into object by operating `MCAsmLayout`:
 
 ```c++
-class MCInstBuilder {
-  MCInst Inst;
-...
-  //Set the BB identifier of current instruction
-  MCInstBuilder &setParent(std::string ID) {
-    Inst.setParent(ID);
-    return *this;
-  }
-  //Set the size of the current jump table
-  MCInstBuilder &setJumpTable(int sz) {
-    Inst.setJumpTable(sz);
-    return *this;
-  }
-  //Set the Jump table symbol information related to current instruction
-  MCInstBuilder &setTableSymName(std::string SymName) {
-    Inst.setTableSymName(SymName);
-    return *this;
-  }
-...
-}
-```
-
-### Modification of MCInst
-
-`EmitInstruction` is the function that emits `MachineInstr` to the object, the tool hooks the procedure to mark the instruction boundary.
-
-```c++
-void tragetArchitecture::EmitInstruction(const MachineInstr *MI) {
-    ...
-	switch(MI->getOpcode())
-    {
-        case 1:
-            ...
-        	MCInst TmpInst;
-            ...
-            TmpInst.setParent(GetMBBInst(MI));//Declared in MCInst.h
-            ...
-        	break;
-        case 2:
-            ...
-            EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::Bcc)
-              .addInfo(someinfo).
-              .setParent(GetMBBInst(MI)));//Declared in MCInstBuilder.h
+void updateReorderInfoValues(const MCAsmLayout &Layout) {
+  const MCAsmInfo *MAI = Layout.getAssembler().getContext().getAsmInfo();
+  const MCObjectFileInfo *MOFI = Layout.getAssembler().getContext().getObjectFileInfo();
+  for (MCSection &Sec : Layout.getAssembler()) {
+    MCSectionELF &ELFSec = static_cast<MCSectionELF &>(Sec);
+    std::string tmpSN, sectionName = ELFSec.getSectionName();
+    if (sectionName.find(".text") == 0) {
+        // Per each fragment in a .text section
+      unsigned nowFragOffset = 0;
+      for (MCFragment &MCF : Sec) {
+        nowFragOffset = MCF.getOffset();
+        for (std::string ID : MCF.getAllMBBs()) {
+          std::get<1>(MAI->MachineBasicBlocks[ID]) += nowFragOffset; // update the offset of current basic block
+          ...
+        }
+      }
+      std::get<5>(MAI->MachineBasicBlocks[ID]) = sectionName; // update section name
     }
     ...
-}
 ```
 
-### Record the Information of Jump Table
+### Recording information of jump table
+
+To trace the information of jump tables, we record the information into relocation in `EmitInstToData`:
 
 ```c++
 void MCELFStreamer::EmitInstToData(const MCInst &Inst,
                                    const MCSubtargetInfo &STI) {
-	std::string ID = Inst.getParent(); //Declared in MCInst.h,(MFID_MBBID)
+	  std::string ID = Inst.getParent(); //Declared in MCInst.h,(MFID_MBBID)
     ...
     for fixup in fixups
     {
@@ -271,7 +149,7 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst,
 }
 ```
 
-### Write Ground Truth to Binary
+### Writing ground truth to binary
 
 To store the ground truth information, the tool creates a new section `.gt` in the binary
 
@@ -630,3 +508,4 @@ Finally, the tool hooks the process of generating sections and add section `.gt`
 # References
 
 - [1] Assembler Directives: https://eng.libretexts.org/Bookshelves/Electrical_Engineering/Electronics/Implementing_a_One_Address_CPU_in_Logisim_(Kann)/02%3A_Assembly_Language/2.03%3A_Assembler_Directives#:~:text=Assembler%20directives%20are%20directions%20to,not%20translated%20into%20machine%20code.
+- [2] Intro to the LLVM MC Project: http://blog.llvm.org/2010/04/intro-to-llvm-mc-project.html

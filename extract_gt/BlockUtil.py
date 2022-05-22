@@ -238,6 +238,7 @@ def checkGroundTruthFuncNotIncluded(groundTruthRange, binary):
     result = set()
     with open(binary, 'rb') as openFile:
         elffile = ELFFile(openFile)
+        arch = elffile.get_machine_arch()
         symsec = elffile.get_section_by_name('.symtab')
         if symsec == None:
             logging.error("binary %s does not contain .symtab section!" % binary)
@@ -246,6 +247,8 @@ def checkGroundTruthFuncNotIncluded(groundTruthRange, binary):
             if 'STT_FUNC' != sym.entry['st_info']['type']:
                 continue
             func_addr = sym['st_value']
+            if arch == "ARM" and func_addr % 2 == 1:
+                func_addr = func_addr - 1
             func_name = sym.name
             if func_addr != 0 and sym['st_size'] != 0 and func_addr not in groundTruthRange:
                 logging.warning("[check ground truth function:] function %s in address 0x%x not in ground truth" %
@@ -1585,13 +1588,14 @@ def taintRegsCrossBB(ins_lists, tainted_regs, first = False):
             continue
         (regs_read, regs_write) = regs_access(inst)
         taint_read = False
-
+        logging.debug("0x%x:\t%s\t%s" %(inst.address, inst.mnemonic, inst.op_str))
         for r in regs_read:
             if r in tainted_regs:
                 taint_read = True
                 break
         # taint the write regs
         if taint_read:
+            logging.debug("find taint read")
             for r in regs_write:
                     reg_name = inst.reg_name(r)
                     if 'ip' in reg_name  and bbl.BB_ARCH == "X86":
@@ -1640,7 +1644,7 @@ def taintRegsCrossBB(ins_lists, tainted_regs, first = False):
                                 shift_v = 18
 
                             mem_taint = i.value.mem.disp + (1 << shift_v)
-                            if mem_taint in tainted_regs:
+                            if mem_taint in tainted_regs  or i.value.mem.base in tainted_regs:
                                 tainted_regs.add(reg)
                                 logging.debug("[taint propogation]: mem offset is %s " % inst.reg_name(reg))
                             elif reg in tainted_regs:

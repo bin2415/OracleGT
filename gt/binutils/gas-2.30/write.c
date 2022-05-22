@@ -1288,9 +1288,9 @@ bbinfo_update_fixp (bfd *abfd ATTRIBUTE_UNUSED,
     if(tmp_sym){
       tmp_fixp->table_size = S_GET_JMPTBL_SIZE(tmp_sym);
       tmp_fixp->entry_size = S_GET_JMPTBL_ENTRY_SZ(tmp_sym);
-	  if (tmp_fixp->table_size > 0) {
-		  as_warn("current symbol is %s, size is %d", S_GET_NAME(tmp_sym), tmp_fixp->table_size);
-	  }
+	//   if (tmp_fixp->table_size > 0) {
+	// 	  as_warn("current symbol is %s, size is %d", S_GET_NAME(tmp_sym), tmp_fixp->table_size);
+	//   }
     }
 
     tmp_fixp->is_new_section = 0;
@@ -1314,9 +1314,9 @@ bbinfo_update_fixp (bfd *abfd ATTRIBUTE_UNUSED,
     if(tmp_sym){
       tmp_fixp->table_size = S_GET_JMPTBL_SIZE(tmp_sym);
       tmp_fixp->entry_size = S_GET_JMPTBL_ENTRY_SZ(tmp_sym);
-	  if (tmp_fixp->table_size > 0) {
-		  as_warn("current symbol is %s, size is %d", S_GET_NAME(tmp_sym), tmp_fixp->table_size);
-	  }
+	//   if (tmp_fixp->table_size > 0) {
+	// 	  as_warn("current symbol is %s, size is %d", S_GET_NAME(tmp_sym), tmp_fixp->table_size);
+	//   }
     }
   }
 }

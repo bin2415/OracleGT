@@ -8,7 +8,7 @@ print_help() {
 
 PREFIX=""
 
-while getopts "d:s:p:ho:" arg
+while getopts "d:s:p:ho:g:" arg
 do
     case $arg in
         h)
@@ -26,6 +26,9 @@ do
         o)
             OUTPUT=$OPTARG
             ;;
+	g)
+	    GT_PREFIX=$OPTARG
+	    ;;
     esac
 done
 
@@ -60,13 +63,8 @@ for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
 
-    gt_file=${dir_name}/gtBlock_${base_name}.pb
-    cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
-
-    if [ ! -f $cmp_file ]; then
-	    continue
-    fi
-
+    gt_file=${dir_name}/${GT_PREFIX}_${base_name}.pb
+    cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.pb
     echo $gt_file
     echo $cmp_file
     output_name=`realpath $f`

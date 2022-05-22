@@ -55,18 +55,23 @@ if [ ! -d $OUTPUT ]; then
     mkdir -p $OUTPUT
 fi
 
-for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
+
+script_name=`basename $SCRIPT`
+compare_out=${OUTPUT}/${PREFIX}_${script_name}.log
+
+if [ -f $compare_out ]; then
+	echo "exist!!"
+	exit 0
+fi
+#echo "$compare_out"
+#exit -1
+for f in `find ${DIRECTORY} -executable -type f | grep -v _strip | grep -v "O0"`; do
     base_name=`basename $f`
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
 
     gt_file=${dir_name}/gtBlock_${base_name}.pb
     cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
-
-    if [ ! -f $cmp_file ]; then
-	    continue
-    fi
-
     echo $gt_file
     echo $cmp_file
     output_name=`realpath $f`
@@ -74,9 +79,18 @@ for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
 
     output_name=${OUTPUT}/$output_name
 
+    if [ ! -f $cmp_file ]; then
+    	echo "skip"
+	continue
+    fi
+
     if [ -f $output_name ]; then
         echo "skip"
         continue
     fi
     python3 $SCRIPT -g $gt_file -c $cmp_file -b $f 2>&1 | tee $output_name
 done
+compare_path=$0
+compare_path=`dirname $compare_path`
+echo "=================collect compare result==============="
+bash ${compare_path}/collect_new.sh ${OUTPUT} > $compare_out

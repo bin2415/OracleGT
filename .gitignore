@@ -4,5 +4,4 @@ build/
 build_arm/
 __pycache__/
 *.pyc
-ztt/
 .cache

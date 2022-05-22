@@ -55,13 +55,14 @@ if [ ! -d $OUTPUT ]; then
     mkdir -p $OUTPUT
 fi
 
-for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
+## cpu2006, ssh, scp, and nginx does not have complete debug information
+for f in `find ${DIRECTORY} -executable -type f | grep -v _strip | grep -v cpu2006 | grep -v ssh | grep -v scp | grep -v sftp | grep -v nginx`; do
     base_name=`basename $f`
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
 
     gt_file=${dir_name}/gtBlock_${base_name}.pb
-    cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
+    cmp_file=${dir_name}/${PREFIX}_${base_name}.pb
 
     if [ ! -f $cmp_file ]; then
 	    continue

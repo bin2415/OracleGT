@@ -4,11 +4,12 @@ print_help() {
     echo -e "\t\t -d: required. The directory that contains binary."
     echo -e "\t\t -s: required. the script that compare."
     echo -e "\t\t -p: required. the compared tools."
+    echo -e "\t\t -g: required. the prefix of ground truth"
 }
 
 PREFIX=""
 
-while getopts "d:s:p:ho:" arg
+while getopts "d:s:p:ho:g:" arg
 do
     case $arg in
         h)
@@ -25,6 +26,9 @@ do
             ;;
         o)
             OUTPUT=$OPTARG
+	    ;;
+	g)
+	    GT_PREFIX=$OPTARG
             ;;
     esac
 done
@@ -48,6 +52,11 @@ if [ -z $OUTPUT ]; then
     OUTPUT="/tmp/"
 fi
 
+if [[ -z $GT_PREFIX ]]; then
+    echo "Please input the gt prefix with (-g)!"
+    exit -1
+fi
+
 output_dir=`dirname $OUTPUT`
 
 if [ ! -d $OUTPUT ]; then
@@ -55,18 +64,13 @@ if [ ! -d $OUTPUT ]; then
     mkdir -p $OUTPUT
 fi
 
-for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
+for f in `find ${DIRECTORY} -executable -type f | grep -v _strip | grep -v clang_m32 | grep -v _O1 | grep -v dealII_base`; do
     base_name=`basename $f`
     dir_name=`dirname $f`
     strip_dir_name=${dir_name}_strip
 
-    gt_file=${dir_name}/gtBlock_${base_name}.pb
+    gt_file=${dir_name}/${GT_PREFIX}_${base_name}.pb
     cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
-
-    if [ ! -f $cmp_file ]; then
-	    continue
-    fi
-
     echo $gt_file
     echo $cmp_file
     output_name=`realpath $f`

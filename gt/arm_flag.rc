@@ -1,9 +1,0 @@
-SRC_FILE=${BASH_SOURCE[0]}
-
-GT_PATH=`dirname $SRC_FILE`
-GT_PATH=`realpath $GT_PATH`
-
-GCC_PATH=${GT_PATH}/build_arm/executable_gcc/bin
-LIBC_PATH=${GT_PATH}/build_arm/glibc_build_64
-export CFLAGS="-B${LIBC_PATH}/lib -g -Wl,-q,-fuse-ld=gold"
-export CXXFLAGS="-B${LIBC_PATH}/lib -g -Wl,-q,-fuse-ld=gold"

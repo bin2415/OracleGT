@@ -61,7 +61,7 @@ for f in `find ${DIRECTORY} -executable -type f | grep -v _strip`; do
     strip_dir_name=${dir_name}_strip
 
     gt_file=${dir_name}/gtBlock_${base_name}.pb
-    cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.strip.pb
+    cmp_file=${strip_dir_name}/${PREFIX}_${base_name}.pb
 
     if [ ! -f $cmp_file ]; then
 	    continue
