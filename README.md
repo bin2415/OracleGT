@@ -4,7 +4,7 @@ Overview of the source code:
 
 ```console
 .
-|-- artifact_eval # steps to reproduce results of Usenix Paper.
+|-- artifact_eval   # steps to reproduce results of Usenix Paper.
 |-- ccr			# source code of ccr/randomizer
 |-- compare		# scripts that compare the result between gt and disassembler
 |-- extract_gt		# scripts that extract ground truth from binary
@@ -18,7 +18,7 @@ Overview of the source code:
 
 ## Supported architectures
 
-Our toolchains are tested in x64 Ubuntu18.04/20.04 and they could (cross-)compile binaries of following architectures.
+Our toolchains were tested in x64 Ubuntu18.04/20.04 and they could (cross-)compile binaries of following architectures.
 
 - x86/x64
 - arm32
